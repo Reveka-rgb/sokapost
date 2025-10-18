@@ -1,0 +1,274 @@
+// Prisma Schema for SokaPost
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USERS & AUTH ====================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?
+  name          String?
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  threadsAccounts    ThreadsAccount[]
+  instagramAccounts  InstagramAccount[]
+  posts              Post[]
+  autoReplySettings  AutoReplySettings[]
+  sessions           Session[]
+  accounts           Account[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  accountId         String
+  providerId        String
+  accessToken       String?
+  refreshToken      String?
+  idToken           String?
+  accessTokenExpiresAt DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope             String?
+  password          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@map("accounts")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@unique([identifier, value])
+  @@map("verifications")
+}
+
+// ==================== SOCIAL ACCOUNTS ====================
+
+model ThreadsAccount {
+  id                 String    @id @default(cuid())
+  userId             String    @unique
+  threadsUserId      String
+  username           String
+  profilePictureUrl  String?
+  accessToken        String
+  tokenType          String    @default("Bearer")
+  expiresAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("threads_accounts")
+}
+
+model InstagramAccount {
+  id                 String    @id @default(cuid())
+  userId             String
+  instagramId        String
+  username           String
+  profilePictureUrl  String?
+  accessToken        String
+  tokenType          String    @default("Bearer")
+  expiresAt          DateTime?
+  facebookPageId     String?
+  facebookPageName   String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, instagramId])
+  @@map("instagram_accounts")
+}
+
+// ==================== POSTS ====================
+
+model Post {
+  id              String    @id @default(cuid())
+  userId          String
+  content         String
+  mediaUrls       String?
+  platform        String    @default("threads")
+  status          String    @default("draft")
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  threadsPostId   String?
+  instagramPostId String?
+  topic           String?
+  location        String?
+  errorMessage    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@map("posts")
+}
+
+// ==================== AUTO-REPLY ====================
+
+model AutoReplySettings {
+  id                  String   @id @default(cuid())
+  userId              String
+  
+  // Platform-specific settings
+  platform            String   // "threads" or "instagram"
+  
+  // Toggle & Mode
+  enabled             Boolean  @default(false)
+  mode                String   @default("ai")  // "ai", "keyword", "manual", "off"
+  
+  // AI Configuration
+  aiModel             String   @default("gemini-2.0-flash-lite")
+  customPrompt        String?  // Custom system prompt per user
+  aiDelay             Int      @default(2)  // Minutes
+  
+  // Filters & Limits
+  onlyFromFollowers   Boolean  @default(false)
+  excludeKeywords     String?  // JSON array
+  maxRepliesPerHour   Int      @default(30)
+  
+  // Monitoring
+  monitorAllPosts     Boolean  @default(true)
+  selectedPostIds     String?  // JSON array
+  
+  // Checkpoint: Only reply to comments after this timestamp
+  // Set when user turns ON auto-reply to avoid replying to old comments
+  enabledAt           DateTime?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@map("auto_reply_settings")
+}
+
+model KeywordReply {
+  id          String    @id @default(cuid())
+  userId      String
+  platform    String    @default("threads")  // "threads" or "instagram"
+  
+  keyword     String    // Keyword to match (case-insensitive)
+  replyText   String    // Predefined reply
+  enabled     Boolean   @default(true)
+  priority    Int       @default(0)  // For ordering
+  
+  // Stats
+  usedCount   Int       @default(0)
+  lastUsedAt  DateTime?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([enabled])
+  @@index([platform])
+  @@map("keyword_replies")
+}
+
+model ReplyHistory {
+  id              String    @id @default(cuid())
+  userId          String
+  platform        String    @default("threads")  // "threads" or "instagram"
+  
+  // Thread Info
+  postId          String    // Original post ID
+  replyId         String    // Reply ID from someone (not unique across platforms)
+  conversationId  String?
+  
+  // Reply Info
+  fromUsername    String    // Who replied to us
+  replyText       String    // Their reply
+  
+  // Our Response
+  ourReplyId      String?   // Our reply ID
+  ourReplyText    String?   // Our reply
+  replyMode       String?   // "ai", "keyword", "manual"
+  
+  // AI Info (if mode = ai)
+  aiPrompt        String?
+  aiModel         String?
+  
+  // Keyword Info (if mode = keyword)
+  matchedKeyword  String?
+  
+  // Status
+  // - pending: waiting for manual review (manual mode)
+  // - processing: currently being processed (prevents race condition)
+  // - replied: successfully replied
+  // - skipped: skipped due to filters/keywords
+  // - failed: failed to send reply
+  status          String    @default("pending")
+  repliedAt       DateTime?
+  
+  // Metadata
+  hideStatus      String?
+  createdAt       DateTime  @default(now())
+  
+  @@unique([platform, replyId])
+  @@index([userId])
+  @@index([postId])
+  @@index([status])
+  @@index([platform])
+  @@map("reply_history")
+}
+
+// Legacy table (keep for backward compatibility)
+model MessageHistory {
+  id             String    @id @default(cuid())
+  userId         String
+  platform       String
+  messageId      String
+  conversationId String
+  fromUsername   String
+  messageText    String
+  replyText      String?
+  repliedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@unique([platform, messageId])
+  @@index([userId])
+  @@index([conversationId])
+  @@map("message_history")
+}

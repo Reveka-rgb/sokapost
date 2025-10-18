@@ -1,0 +1,809 @@
+'use client'
+
+import { useState } from 'react'
+import { FiX, FiImage, FiSmile, FiHash, FiMapPin, FiCalendar, FiClock, FiMoreHorizontal, FiHeart, FiMessageCircle, FiRepeat, FiSend, FiCheckCircle, FiZap } from 'react-icons/fi'
+import { MdVerified } from 'react-icons/md'
+import axios from 'axios'
+import { useRouter } from 'next/navigation'
+import { toast } from 'react-hot-toast'
+
+interface CreatePostModalProps {
+  isOpen: boolean
+  onClose: () => void
+  username?: string
+}
+
+export default function CreatePostModal({ isOpen, onClose, username }: CreatePostModalProps) {
+  const router = useRouter()
+  const [content, setContent] = useState('')
+  const [scheduledDate, setScheduledDate] = useState('')
+  const [scheduledTime, setScheduledTime] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createAnother, setCreateAnother] = useState(false)
+  const [mediaFiles, setMediaFiles] = useState<File[]>([])
+  const [mediaUrls, setMediaUrls] = useState<string[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [showMediaLibrary, setShowMediaLibrary] = useState(false)
+  const [mediaLibrary, setMediaLibrary] = useState<Array<{ url: string; filename: string }>>([])
+  const [loadingLibrary, setLoadingLibrary] = useState(false)
+  const [selectedFromLibrary, setSelectedFromLibrary] = useState<Set<string>>(new Set())
+  
+  // AI Assistant states
+  const [showAiAssistant, setShowAiAssistant] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiGeneratedContent, setAiGeneratedContent] = useState('')
+
+  const loadMediaLibrary = async () => {
+    if (mediaLibrary.length > 0) {
+      setShowMediaLibrary(true)
+      return
+    }
+
+    setLoadingLibrary(true)
+    
+    try {
+      const response = await axios.get('/api/media-library')
+      setMediaLibrary(response.data.media)
+      setLoadingLibrary(false)
+      setShowMediaLibrary(true)
+    } catch (error) {
+      toast.error('Failed to load media library')
+      setLoadingLibrary(false)
+    }
+  }
+
+  const toggleMediaLibraryItem = (url: string) => {
+    const newSelected = new Set(selectedFromLibrary)
+    if (newSelected.has(url)) {
+      newSelected.delete(url)
+    } else {
+      if (mediaUrls.length + newSelected.size >= 10) {
+        toast.error('Maximum 10 images allowed')
+        return
+      }
+      newSelected.add(url)
+    }
+    setSelectedFromLibrary(newSelected)
+  }
+
+  const addFromMediaLibrary = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    
+    const urls = Array.from(selectedFromLibrary)
+    setMediaUrls([...mediaUrls, ...urls])
+    setSelectedFromLibrary(new Set())
+    setShowMediaLibrary(false)
+    toast.success(`${urls.length} image(s) added!`)
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+
+    // Validate max 10 images
+    if (mediaFiles.length + files.length > 10) {
+      toast.error('Maximum 10 images allowed')
+      return
+    }
+
+    setUploading(true)
+    
+    try {
+      const uploadedUrls: string[] = []
+      
+      for (const file of files) {
+        const formData = new FormData()
+        formData.append('file', file)
+        
+        const response = await axios.post('/api/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        
+        if (response.data.url) {
+          uploadedUrls.push(response.data.url)
+        }
+      }
+      
+      setMediaFiles([...mediaFiles, ...files])
+      setMediaUrls([...mediaUrls, ...uploadedUrls])
+      toast.success(`${files.length} image(s) uploaded!`)
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to upload images')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleRemoveMedia = (index: number) => {
+    setMediaFiles(mediaFiles.filter((_, i) => i !== index))
+    setMediaUrls(mediaUrls.filter((_, i) => i !== index))
+  }
+
+  const handlePublishNow = async () => {
+    if (!content.trim() && mediaUrls.length === 0) {
+      toast.error('Please enter post content or add media')
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      
+      // Create post with immediate schedule (1 minute from now)
+      const response = await axios.post('/api/posts', {
+        content: content.trim(),
+        platform: 'threads',
+        publishImmediately: true,  // This will auto-schedule for 1 min from now
+        mediaUrls: mediaUrls
+      })
+
+      toast.success('🚀 Post scheduled for immediate publish! (within 1 minute)')
+      
+      if (!createAnother) {
+        onClose()
+        router.refresh()
+      } else {
+        setContent('')
+        setMediaFiles([])
+        setMediaUrls([])
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to publish post')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleSchedulePost = async () => {
+    if (!content.trim() && mediaUrls.length === 0) {
+      toast.error('Please enter post content or add media')
+      return
+    }
+
+    if (!scheduledDate || !scheduledTime) {
+      toast.error('Please select date and time')
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      
+      const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}`)
+      
+      const response = await axios.post('/api/posts', {
+        content: content.trim(),
+        platform: 'threads',
+        scheduledAt: scheduledAt.toISOString(),
+        status: 'scheduled',
+        mediaUrls: mediaUrls
+      })
+
+      toast.success('Post scheduled successfully!')
+      
+      if (!createAnother) {
+        onClose()
+        router.refresh()
+      } else {
+        setContent('')
+        setScheduledDate('')
+        setScheduledTime('')
+        setMediaFiles([])
+        setMediaUrls([])
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to schedule post')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleGenerateAi = async () => {
+    if (!aiPrompt.trim()) {
+      toast.error('Please enter a prompt')
+      return
+    }
+
+    try {
+      setAiGenerating(true)
+      const response = await axios.post('/api/ai/generate', {
+        prompt: aiPrompt
+      })
+      
+      setAiGeneratedContent(response.data.content)
+      toast.success('Content generated!')
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to generate content')
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
+  const handleInsertAiContent = () => {
+    if (aiGeneratedContent) {
+      setContent(aiGeneratedContent)
+      setShowAiAssistant(false)
+      setAiPrompt('')
+      setAiGeneratedContent('')
+      toast.success('Content inserted!')
+    }
+  }
+
+  const handleSaveDraft = async () => {
+    if (!content.trim() && mediaUrls.length === 0) {
+      toast.error('Please enter post content or add media')
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      
+      const response = await axios.post('/api/posts', {
+        content: content.trim(),
+        platform: 'threads',
+        status: 'draft',
+        mediaUrls: mediaUrls
+      })
+
+      toast.success('Draft saved!')
+      
+      if (!createAnother) {
+        onClose()
+        router.refresh()
+      } else {
+        setContent('')
+        setMediaFiles([])
+        setMediaUrls([])
+      }
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to save draft')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <>
+      {/* AI Assistant Sidebar - Outside main modal */}
+      {showAiAssistant && (
+        <div 
+          className="fixed left-4 top-1/2 -translate-y-1/2 w-80 bg-white shadow-2xl z-[60] flex flex-col rounded-xl max-h-[90vh]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* AI Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+            <div className="flex items-center gap-2">
+              <FiZap className="w-5 h-5 text-purple-600" />
+              <h3 className="font-bold text-gray-900">AI Assistant</h3>
+            </div>
+            <button
+              onClick={() => setShowAiAssistant(false)}
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <FiX className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
+
+          {/* AI Content */}
+          <div className="flex-1 flex flex-col p-4 overflow-y-auto">
+            <label className="text-sm font-medium text-gray-700 mb-2">
+              What do you want to write about?
+            </label>
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Eg. Promote my photography course to get new signups. Registration closes in 3 days."
+              className="w-full h-32 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none mb-3"
+            />
+            
+            <p className="text-xs text-gray-500 mb-3">
+              <strong>Pro tip:</strong> Include key points, your target audience and your desired outcome for this post
+            </p>
+
+            <button
+              onClick={handleGenerateAi}
+              disabled={aiGenerating || !aiPrompt.trim()}
+              className="w-full px-4 py-2 text-sm font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {aiGenerating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <FiZap className="w-4 h-4" />
+                  Generate
+                </>
+              )}
+            </button>
+
+            {/* Generated Content */}
+            {aiGeneratedContent && (
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700">Generated Content:</span>
+                  <button
+                    onClick={handleInsertAiContent}
+                    className="px-3 py-1 text-xs font-semibold text-white bg-green-600 rounded hover:bg-green-700 transition-colors"
+                  >
+                    Insert
+                  </button>
+                </div>
+                <p className="text-sm text-gray-900 whitespace-pre-wrap">{aiGeneratedContent}</p>
+              </div>
+            )}
+          </div>
+
+          {/* AI Footer */}
+          <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
+            <p className="text-xs text-gray-500">
+              Learn more about{' '}
+              <a href="#" className="text-purple-600 hover:underline">
+                creating great prompts
+              </a>{' '}
+              and the{' '}
+              <a href="#" className="text-purple-600 hover:underline">
+                known limitations of AI
+              </a>
+              .
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Main Modal Backdrop */}
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50 modal-backdrop" 
+        onClick={(e) => {
+          // Don't close if media library is open
+          if (showMediaLibrary) {
+            e.stopPropagation()
+            return
+          }
+          onClose()
+        }}
+      >
+        <div 
+          className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex modal-content"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Left Panel - Create Post */}
+          <div className="flex-1 flex flex-col border-r border-gray-200">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+            <h2 className="text-xl font-bold text-gray-900">Create Post</h2>
+            <div className="flex items-center gap-2">
+              <button className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                Add Tags ▼
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <FiX className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Content Area */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* Profile */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
+                {username ? username[0].toUpperCase() : 'U'}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-gray-900">{username || 'User'}</span>
+                  <MdVerified className="w-4 h-4 text-blue-500" />
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center">
+                <span className="text-white text-xs">@</span>
+              </div>
+            </div>
+
+            {/* Text Area */}
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="What's on your mind?"
+              className="w-full min-h-[200px] text-gray-900 text-[15px] resize-none focus:outline-none placeholder-gray-400"
+              maxLength={500}
+            />
+
+            {/* Character Count */}
+            <div className="text-right text-sm text-gray-500 mb-4">
+              {content.length}/500
+            </div>
+
+            {/* Media Upload Area */}
+            <div className="mb-4">
+              <input
+                type="file"
+                id="media-upload"
+                accept="image/*"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+                disabled={uploading}
+              />
+              
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <label
+                  htmlFor="media-upload"
+                  className="block border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                >
+                  {uploading ? (
+                    <>
+                      <div className="w-5 h-5 mx-auto mb-1 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-xs text-gray-600">Uploading...</p>
+                    </>
+                  ) : (
+                    <>
+                      <FiImage className="w-5 h-5 mx-auto mb-1 text-gray-400" />
+                      <p className="text-xs text-gray-600">Upload New</p>
+                    </>
+                  )}
+                </label>
+
+                <button
+                  type="button"
+                  onClick={loadMediaLibrary}
+                  disabled={loadingLibrary}
+                  className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingLibrary ? (
+                    <>
+                      <div className="w-5 h-5 mx-auto mb-1 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-xs text-blue-600 font-medium">Loading...</p>
+                    </>
+                  ) : (
+                    <>
+                      <FiImage className="w-5 h-5 mx-auto mb-1 text-blue-600" />
+                      <p className="text-xs text-blue-600 font-medium">Browse Library</p>
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              <p className="text-xs text-gray-500 text-center">
+                Max 10 images, 10MB each
+              </p>
+
+              {/* Preview uploaded images */}
+              {mediaUrls.length > 0 && (
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  {mediaUrls.map((url, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={url}
+                        alt={`Upload ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg border border-gray-200"
+                      />
+                      <button
+                        onClick={() => handleRemoveMedia(index)}
+                        className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1 mb-4 pb-3 border-b border-gray-200">
+              <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" title="Add emoji">
+                <FiSmile className="w-4 h-4 text-gray-600" />
+              </button>
+              <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" title="Add hashtag">
+                <FiHash className="w-4 h-4 text-gray-600" />
+              </button>
+              <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" title="Add location">
+                <FiMapPin className="w-4 h-4 text-gray-600" />
+              </button>
+              <button 
+                onClick={() => setShowAiAssistant(!showAiAssistant)}
+                className={`p-2 hover:bg-purple-100 rounded-full transition-colors ${showAiAssistant ? 'bg-purple-100' : ''}`} 
+                title="AI Assistant"
+              >
+                <FiZap className="w-4 h-4 text-purple-600" />
+              </button>
+              <div className="ml-auto text-xs text-gray-500">
+                <span className="font-medium">{content.length}</span> characters
+              </div>
+            </div>
+
+            {/* Topic & Location */}
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Topic</label>
+                <input
+                  type="text"
+                  placeholder="Type the topic"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Location</label>
+                <input
+                  type="text"
+                  placeholder="Type the location"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-3 border-t border-gray-200 bg-gray-50">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={createAnother}
+                  onChange={(e) => setCreateAnother(e.target.checked)}
+                  className="rounded border-gray-300 w-4 h-4"
+                />
+                Create Another
+              </label>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSaveDraft}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-xs font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Save Draft
+                </button>
+
+                {/* Schedule Picker */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border border-gray-300 rounded-lg bg-white">
+                  <FiCalendar className="w-3.5 h-3.5 text-gray-600" />
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    className="text-xs focus:outline-none w-24"
+                  />
+                  <FiClock className="w-3.5 h-3.5 text-gray-600" />
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    className="text-xs focus:outline-none w-16"
+                  />
+                </div>
+
+                <button
+                  onClick={handlePublishNow}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  Publish Now
+                </button>
+
+                <button
+                  onClick={handleSchedulePost}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  Schedule Post
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel - Threads Preview */}
+        <div className="w-[400px] bg-gray-50 flex flex-col">
+          {/* Preview Header */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-gray-900">Threads Preview</h3>
+              <div className="w-4 h-4 rounded-full bg-gray-300 flex items-center justify-center">
+                <span className="text-white text-[10px]">ⓘ</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Preview Content */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              {/* Post Header */}
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-500 flex items-center justify-center text-white font-bold shadow-md relative">
+                  {username ? username[0].toUpperCase() : 'U'}
+                  <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-black rounded-full flex items-center justify-center border-2 border-white">
+                    <span className="text-white text-xs">@</span>
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1">
+                      <span className="font-semibold text-gray-900">{username || 'User'}</span>
+                      <MdVerified className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">21h</span>
+                      <FiMoreHorizontal className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-500">@{username || 'user'}</p>
+                </div>
+              </div>
+
+              {/* Post Content */}
+              <div className="mb-4">
+                <p className="text-gray-900 text-[15px] leading-relaxed whitespace-pre-wrap">
+                  {content || 'Your post will appear here...'}
+                </p>
+                
+                {/* Preview Images */}
+                {mediaUrls.length > 0 && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {mediaUrls.slice(0, 4).map((url, index) => (
+                      <img
+                        key={index}
+                        src={url}
+                        alt={`Preview ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg"
+                      />
+                    ))}
+                    {mediaUrls.length > 4 && (
+                      <div className="w-full h-32 bg-gray-900 bg-opacity-50 rounded-lg flex items-center justify-center text-white font-bold">
+                        +{mediaUrls.length - 4}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-4 py-2 border-t border-gray-100">
+                <button className="flex items-center gap-2 text-gray-600 hover:text-red-500 transition-colors">
+                  <FiHeart className="w-5 h-5" />
+                </button>
+                <button className="flex items-center gap-2 text-gray-600 hover:text-blue-500 transition-colors">
+                  <FiMessageCircle className="w-5 h-5" />
+                </button>
+                <button className="flex items-center gap-2 text-gray-600 hover:text-green-500 transition-colors">
+                  <FiRepeat className="w-5 h-5" />
+                </button>
+                <button className="flex items-center gap-2 text-gray-600 hover:text-purple-500 transition-colors">
+                  <FiSend className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Preview Note */}
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-xs text-blue-800">
+                <strong>Note:</strong> This is a preview of how your post will appear on Threads.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Media Library Browser Modal */}
+      {showMediaLibrary && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowMediaLibrary(false)
+              setSelectedFromLibrary(new Set())
+            }
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Media Library</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {mediaLibrary.length} {mediaLibrary.length === 1 ? 'item' : 'items'} available
+                  {selectedFromLibrary.size > 0 && ` • ${selectedFromLibrary.size} selected`}
+                </p>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setShowMediaLibrary(false)
+                  setSelectedFromLibrary(new Set())
+                }}
+                className="text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <FiX className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Media Grid */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {mediaLibrary.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <FiImage className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="text-lg mb-2">No media in library</p>
+                  <p className="text-sm">Upload images to build your media library</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                  {mediaLibrary.map((item) => (
+                    <div
+                      key={item.url}
+                      className={`group relative bg-white rounded-lg border-2 overflow-hidden cursor-pointer transition-all hover:shadow-md ${
+                        selectedFromLibrary.has(item.url)
+                          ? 'border-blue-500 ring-2 ring-blue-500'
+                          : 'border-gray-200 hover:border-blue-300'
+                      }`}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        toggleMediaLibraryItem(item.url)
+                      }}
+                    >
+                      {/* Selection indicator */}
+                      {selectedFromLibrary.has(item.url) && (
+                        <div className="absolute top-2 left-2 z-10 bg-blue-600 text-white rounded-full p-1">
+                          <FiCheckCircle className="w-4 h-4" />
+                        </div>
+                      )}
+
+                      {/* Image */}
+                      <div className="aspect-square relative bg-gray-100">
+                        <img
+                          src={item.url.startsWith('/uploads/') ? `/api/media/${item.url.split('/').pop()}` : item.url}
+                          alt={item.filename}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.src = '/placeholder-image.jpg'
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setShowMediaLibrary(false)
+                  setSelectedFromLibrary(new Set())
+                }}
+                className="px-6 py-2 text-gray-700 hover:text-gray-900 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={(e) => addFromMediaLibrary(e)}
+                disabled={selectedFromLibrary.size === 0}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              >
+                Add {selectedFromLibrary.size > 0 && `(${selectedFromLibrary.size})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+        </div>
+      </div>
+    </>
+  )
+}
